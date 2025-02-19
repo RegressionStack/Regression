@@ -278,3 +278,106 @@ public class FileComparisonService {
         }
     }
 }
+
+
+
+import org.apache.commons.io.FileUtils;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+
+public class FileComparisonService {
+
+    public List<String> readFileLines(String path) throws IOException {
+        return FileUtils.readLines(new File(path), StandardCharsets.UTF_8);
+    }
+
+    public ComparisonResult compareFiles(List<String> file1Lines, List<String> file2Lines) {
+        List<Match> matches = new ArrayList<>();
+        List<Variance> variances = new ArrayList<>();
+
+        for (int i = 0; i < file1Lines.size(); i++) {
+            if (i < file2Lines.size()) {
+                if (file1Lines.get(i).equals(file2Lines.get(i))) {
+                    matches.add(new Match(i + 1, file1Lines.get(i)));
+                } else {
+                    variances.add(new Variance(i + 1, file1Lines.get(i), file2Lines.get(i),
+                            getHighlightedLine(file1Lines.get(i), file2Lines.get(i)),
+                            getHighlightedLine(file2Lines.get(i), file1Lines.get(i))));
+                }
+            } else {
+                variances.add(new Variance(i + 1, file1Lines.get(i), "", getHighlightedLine(file1Lines.get(i), ""), ""));
+            }
+        }
+
+        for (int i = file1Lines.size(); i < file2Lines.size(); i++) {
+            variances.add(new Variance(i + 1, "", file2Lines.get(i), "", getHighlightedLine("", file2Lines.get(i))));
+        }
+
+        return new ComparisonResult(matches, variances);
+    }
+
+    private String getHighlightedLine(String line1, String line2) {
+        String[] words1 = line1.split(" ");
+        String[] words2 = line2.split(" ");
+        StringBuilder highlightedLine = new StringBuilder();
+
+        int maxWords = Math.max(words1.length, words2.length);
+        for (int i = 0; i < maxWords; i++) {
+            String word1 = i < words1.length ? words1[i] : "";
+            String word2 = i < words2.length ? words2[i] : "";
+
+            if (word1.equals(word2)) {
+                highlightedLine.append(word1).append(" ");
+            } else {
+                highlightedLine.append("<span style='color: red;'>").append(word1).append("</span> ");
+            }
+        }
+        return highlightedLine.toString().trim();
+    }
+
+    public void generateHtmlReport(String filePath, String file1Name, String file2Name, ComparisonResult result) throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
+            writer.write("<html><head><title>Comparison Report</title></head><body>");
+            writer.write("<h1>Comparison Report</h1>");
+
+            // Summary section
+            writer.write("<h2>Summary</h2>");
+            writer.write("<p><strong>File 1:</strong> " + file1Name + "</p>");
+            writer.write("<p><strong>File 2:</strong> " + file2Name + "</p>");
+            writer.write("<p><strong>Total Lines:</strong> " + (result.getMatches().size() + result.getVariances().size()) + "</p>");
+            writer.write("<p><strong>Total Passed Lines:</strong> <a href='#passed'>" + result.getMatches().size() + "</a></p>");
+            writer.write("<p><strong>Total Failed Lines:</strong> <a href='#failed'>" + result.getVariances().size() + "</a></p>");
+            writer.write("<p><strong>Pass Percentage:</strong> " + (result.getMatches().size() * 100.0 / (result.getMatches().size() + result.getVariances().size())) + "%</p>");
+            writer.write("<p><strong>Fail Percentage:</strong> " + (result.getVariances().size() * 100.0 / (result.getMatches().size() + result.getVariances().size())) + "%</p>");
+
+            // Passed lines section
+            writer.write("<h2 id='passed'>Passed Lines</h2>");
+            writer.write("<table border='1'>");
+            writer.write("<tr style='background-color: green; color: black;'><th>Line Number</th><th>Content</th></tr>");
+            for (Match match : result.getMatches()) {
+                writer.write("<tr style='background-color: green; color: black;'>");
+                writer.write("<td>" + match.getLineNumber() + "</td>");
+                writer.write("<td>" + match.getContent() + "</td>");
+                writer.write("</tr>");
+            }
+            writer.write("</table>");
+
+            // Failed lines section
+            writer.write("<h2 id='failed'>Failed Lines</h2>");
+            writer.write("<table border='1'>");
+            writer.write("<tr style='background-color: red; color: black;'><th>Line Number</th><th>File 1 Content</th><th>File 2 Content</th></tr>");
+            for (Variance variance : result.getVariances()) {
+                writer.write("<tr style='background-color: red; color: black;'>");
+                writer.write("<td>" + variance.getLineNumber() + "</td>");
+                writer.write("<td>" + variance.getHighlightedFile1Content() + "</td>");
+                writer.write("<td>" + variance.getHighlightedFile2Content() + "</td>");
+                writer.write("</tr>");
+            }
+            writer.write("</table>");
+
+            writer.write("</body></html>");
+        }
+    }
+}
