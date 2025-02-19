@@ -98,3 +98,72 @@ public class FileComparisonTest {
         System.out.println("Comparison report generated: target/comparison_report.html");
     }
 }
+
+
+
+public class Match {
+    private int lineNumber;
+    private String content;
+
+    public Match(int lineNumber, String content) {
+        this.lineNumber = lineNumber;
+        this.content = content;
+    }
+
+    public int getLineNumber() {
+        return lineNumber;
+    }
+
+    public String getContent() {
+        return content;
+    }
+}
+
+
+
+public class Variance {
+    private int lineNumber;
+    private String file1Content;
+    private String file2Content;
+
+    public Variance(int lineNumber, String file1Content, String file2Content) {
+        this.lineNumber = lineNumber;
+        this.file1Content = file1Content;
+        this.file2Content = file2Content;
+    }
+
+    public int getLineNumber() {
+        return lineNumber;
+    }
+
+    public String getFile1Content() {
+        return file1Content;
+    }
+
+    public String getFile2Content() {
+        return file2Content;
+    }
+}
+
+
+
+import java.util.List;
+
+public class ComparisonResult {
+    private List<Match> matches;
+    private List<Variance> variances;
+
+    public ComparisonResult(List<Match> matches, List<Variance> variances) {
+        this.matches = matches;
+        this.variances = variances;
+    }
+
+    public List<Match> getMatches() {
+        return matches;
+    }
+
+    public List<Variance> getVariances() {
+        return variances;
+    }
+}
+
