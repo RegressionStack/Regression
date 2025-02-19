@@ -1,0 +1,96 @@
+src/test/java/karate/CompareLines.feature:
+
+Feature: Compare lines in two files
+
+  Scenario: Validate lines in files
+    Given path 'classpath:file1.txt'
+    And def file1 = karate.readAsString('classpath:file1.txt').split('\n')
+    And path 'classpath:file2.txt'
+    And def file2 = karate.readAsString('classpath:file2.txt').split('\n')
+    Then assert file1.length == file2.length
+    And def matches = []
+    And def variances = []
+    And def compareFiles = function(file1, file2) {
+      for (var i = 0; i < file1.length; i++) {
+        if (file1[i] == file2[i]) {
+          matches.push({line: i + 1, content: file1[i]})
+        } else {
+          variances.push({line: i + 1, file1: file1[i], file2: file2[i], diffFile1: getHighlightedLine(file1[i], file2[i]), diffFile2: getHighlightedLine(file2[i], file1[i])})
+        }
+      }
+    }
+    And def getHighlightedLine = function(line1, line2) {
+      var words1 = line1.split(' ')
+      var words2 = line2.split(' ')
+      var highlighted = []
+      for (var j = 0; j < words1.length; j++) {
+        if (j < words2.length && words1[j] != words2[j]) {
+          highlighted.push("<span style='color: red;'>" + words1[j] + "</span>")
+        } else {
+          highlighted.push(words1[j])
+        }
+      }
+      return highlighted.join(' ')
+    }
+    * compareFiles(file1, file2)
+    * karate.log('Matches:', matches)
+    * karate.log('Variances:', variances)
+    * def totalLinesPassed = matches.length
+    * def totalLinesFailed = variances.length
+    * def totalLines = totalLinesPassed + totalLinesFailed
+    * def passPercentage = totalLines > 0 ? (totalLinesPassed / totalLines) * 100 : 0
+    * karate.log('Total Lines Passed:', totalLinesPassed)
+    * karate.log('Total Lines Failed:', totalLinesFailed)
+    * karate.log('Pass Percentage:', passPercentage)
+    * match totalLinesPassed != null
+    * match totalLinesFailed != null
+
+
+
+
+
+
+
+src/test/java/karate/KarateRunner.java:
+
+package karate;
+
+import com.intuit.karate.Results;
+import com.intuit.karate.Runner;
+import net.masterthought.cucumber.Configuration;
+import net.masterthought.cucumber.ReportBuilder;
+import org.apache.commons.io.FileUtils;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+
+public class KarateRunner {
+
+    /**
+     * This method generates the .json which will then be used to build the cucumber report
+     *
+     * @param karateOutputPath (In this path the json are kept)
+     */
+    private static void generateReport(String karateOutputPath) {
+        Collection<File> jsonFiles = FileUtils.listFiles(new File(karateOutputPath), new String[]{"json"}, true);
+        List<String> jsonPaths = new ArrayList<>(jsonFiles.size());
+        jsonFiles.forEach(file -> jsonPaths.add(file.getAbsolutePath()));
+        Configuration config = new Configuration(new File("target"), "File Comparison");
+        ReportBuilder reportBuilder = new ReportBuilder(jsonPaths, config);
+        reportBuilder.generateReports();
+    }
+
+    @Test
+    public void testParallel() {
+        String karateOutputPath = "target/surefire-reports";
+        Results results = Runner.parallel(getClass(), 5, karateOutputPath);
+        generateReport(results.getReportDir());
+        Assertions.assertEquals(0, results.getFailCount());
+    }
+}
+
+
