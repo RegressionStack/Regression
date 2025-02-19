@@ -1,0 +1,320 @@
+
+
+
+
+Feature: DR File Line-by-Line Comparison
+  As a user
+  I want to compare two DR files line by line
+  So that I can identify differences between them
+
+  @LineComparison
+  Scenario Outline: Compare line <lineNumber> between two DR files
+    Given I have two DR files to compare
+    When I compare line <lineNumber>
+    Then the comparison result should be "<status>"
+    And the details should show "<expectedContent>" and "<actualContent>"
+
+    Examples:
+      | lineNumber | status | expectedContent | actualContent |
+      | {lineNumber} | {status} | {expectedContent} | {actualContent} |
+
+
+
+package com.filecomparison.service;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+@Service
+@Slf4j
+public class FileComparisonService {
+    private List<String> file1Lines;
+    private List<String> file2Lines;
+    private List<ComparisonResult> results;
+    
+    public void initializeComparison(String file1Path, String file2Path) throws IOException {
+        file1Lines = Files.readAllLines(Paths.get(file1Path));
+        file2Lines = Files.readAllLines(Paths.get(file2Path));
+        results = new ArrayList<>();
+    }
+    
+    public ComparisonResult compareLine(int lineNumber) {
+        ComparisonResult result = new ComparisonResult();
+        result.setLineNumber(lineNumber);
+        
+        String line1 = lineNumber <= file1Lines.size() ? file1Lines.get(lineNumber - 1) : null;
+        String line2 = lineNumber <= file2Lines.size() ? file2Lines.get(lineNumber - 1) : null;
+        
+        result.setLine1(line1);
+        result.setLine2(line2);
+        
+        if (line1 == null && line2 == null) {
+            result.setStatus("INVALID");
+            result.setDifference("Line number exceeds both files");
+        } else if (line1 == null) {
+            result.setStatus("FAILED");
+            result.setDifference("Missing line in first file");
+        } else if (line2 == null) {
+            result.setStatus("FAILED");
+            result.setDifference("Missing line in second file");
+        } else if (line1.equals(line2)) {
+            result.setStatus("PASSED");
+            result.setDifference(null);
+        } else {
+            result.setStatus("FAILED");
+            result.setDifference(generateDifference(line1, line2));
+        }
+        
+        results.add(result);
+        return result;
+    }
+    
+    private String generateDifference(String line1, String line2) {
+        StringBuilder diff = new StringBuilder();
+        diff.append("Expected: ").append(line1).append("\n");
+        diff.append("Actual: ").append(line2);
+        return diff.toString();
+    }
+    
+    public int getTotalLines() {
+        return Math.max(file1Lines.size(), file2Lines.size());
+    }
+    
+    public int getPassedLines() {
+        return (int) results.stream()
+            .filter(r -> "PASSED".equals(r.getStatus()))
+            .count();
+    }
+    
+    public int getFailedLines() {
+        return (int) results.stream()
+            .filter(r -> "FAILED".equals(r.getStatus()))
+            .count();
+    }
+    
+    public double getPassPercentage() {
+        int total = getTotalLines();
+        return total > 0 ? (getPassedLines() * 100.0) / total : 0.0;
+    }
+}
+
+
+
+
+
+
+
+
+
+package com.filecomparison.service;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ComparisonResult {
+    private int lineNumber;
+    private String line1;
+    private String line2;
+    private String difference;
+    private String status; // PASSED, FAILED, or INVALID
+}
+
+
+
+package com.filecomparison.steps;
+
+import com.filecomparison.service.ComparisonResult;
+import com.filecomparison.service.FileComparisonService;
+import io.cucumber.java.Before;
+import io.cucumber.java.en.Given;
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.io.IOException;
+
+import static org.junit.Assert.*;
+
+public class FileComparisonSteps {
+
+    @Autowired
+    private FileComparisonService fileComparisonService;
+    
+    private String file1Path;
+    private String file2Path;
+    private ComparisonResult currentResult;
+
+    @Before
+    public void setup() {
+        file1Path = "src/test/resources/test_files/file1.dr";
+        file2Path = "src/test/resources/test_files/file2.dr";
+    }
+
+    @Given("I have two DR files to compare")
+    public void i_have_two_dr_files_to_compare() throws IOException {
+        fileComparisonService.initializeComparison(file1Path, file2Path);
+    }
+
+    @When("I compare line {int}")
+    public void i_compare_line(int lineNumber) {
+        currentResult = fileComparisonService.compareLine(lineNumber);
+    }
+
+    @Then("the comparison result should be {string}")
+    public void the_comparison_result_should_be(String expectedStatus) {
+        assertEquals(expectedStatus, currentResult.getStatus());
+    }
+
+    @Then("the details should show {string} and {string}")
+    public void the_details_should_show_and(String expectedContent, String actualContent) {
+        if (!"null".equals(expectedContent)) {
+            assertEquals(expectedContent, currentResult.getLine1());
+        }
+        if (!"null".equals(actualContent)) {
+            assertEquals(actualContent, currentResult.getLine2());
+        }
+    }
+}
+
+
+
+
+package com.filecomparison.report;
+
+import io.cucumber.plugin.ConcurrentEventListener;
+import io.cucumber.plugin.event.*;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.List;
+
+public class DetailedHTMLFormatter implements ConcurrentEventListener {
+    private final List<TestCaseFinished> results = new ArrayList<>();
+    private final File outputDir;
+    private final String outputName;
+
+    public DetailedHTMLFormatter(File outputDir, String outputName) {
+        this.outputDir = outputDir;
+        this.outputName = outputName;
+    }
+
+    @Override
+    public void setEventPublisher(EventPublisher publisher) {
+        publisher.registerHandlerFor(TestCaseFinished.class, this::handleTestCaseFinished);
+        publisher.registerHandlerFor(TestRunFinished.class, event -> generateReport());
+    }
+
+    private void handleTestCaseFinished(TestCaseFinished event) {
+        results.add(event);
+    }
+
+    private void generateReport() {
+        File reportFile = new File(outputDir, outputName + ".html");
+        try (Writer writer = new FileWriter(reportFile)) {
+            writeHeader(writer);
+            writeSummary(writer);
+            writeDetails(writer);
+            writeFooter(writer);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to generate report", e);
+        }
+    }
+
+    private void writeHeader(Writer writer) throws IOException {
+        writer.write("<!DOCTYPE html>\n");
+        writer.write("<html>\n<head>\n");
+        writer.write("<title>DR File Comparison Report</title>\n");
+        writer.write("<style>\n");
+        writer.write(".passed { color: green; }\n");
+        writer.write(".failed { color: red; }\n");
+        writer.write(".diff { background-color: #ffe6e6; }\n");
+        writer.write("table { border-collapse: collapse; width: 100%; }\n");
+        writer.write("th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }\n");
+        writer.write("</style>\n");
+        writer.write("</head>\n<body>\n");
+    }
+
+    private void writeSummary(Writer writer) throws IOException {
+        long passed = results.stream()
+                .filter(r -> r.getResult().getStatus() == Status.PASSED)
+                .count();
+        long failed = results.stream()
+                .filter(r -> r.getResult().getStatus() == Status.FAILED)
+                .count();
+        long total = results.size();
+
+        writer.write("<h2>Summary</h2>\n");
+        writer.write("<table>\n");
+        writer.write("<tr><td>Total Lines</td><td>" + total + "</td></tr>\n");
+        writer.write("<tr><td>Passed Lines</td><td class='passed'>" + passed + "</td></tr>\n");
+        writer.write("<tr><td>Failed Lines</td><td class='failed'>" + failed + "</td></tr>\n");
+        writer.write("<tr><td>Pass Percentage</td><td>" + 
+                String.format("%.2f%%", (total > 0 ? (passed * 100.0) / total : 0)) + "</td></tr>\n");
+        writer.write("</table>\n");
+    }
+
+    private void writeDetails(Writer writer) throws IOException {
+        writer.write("<h2>Detailed Results</h2>\n");
+        writer.write("<table>\n");
+        writer.write("<tr><th>Line</th><th>Status</th><th>Expected</th><th>Actual</th><th>Difference</th></tr>\n");
+
+        for (TestCaseFinished result : results) {
+            String lineNumber = result.getTestCase().getName().replaceAll(".*line (\\d+).*", "$1");
+            String status = result.getResult().getStatus().toString();
+            String statusClass = status.equals("PASSED") ? "passed" : "failed";
+
+            writer.write("<tr class='" + statusClass + "'>\n");
+            writer.write("<td>" + lineNumber + "</td>\n");
+            writer.write("<td>" + status + "</td>\n");
+            // Add actual line content and differences here
+            writer.write("</tr>\n");
+        }
+
+        writer.write("</table>\n");
+    }
+
+    private void writeFooter(Writer writer) throws IOException {
+        writer.write("</body>\n</html>");
+    }
+}
+
+
+
+
+package com.filecomparison;
+
+import io.cucumber.junit.Cucumber;
+import io.cucumber.junit.CucumberOptions;
+import org.junit.runner.RunWith;
+
+@RunWith(Cucumber.class)
+@CucumberOptions(
+    features = "src/test/resources/features",
+    glue = {"com.filecomparison.steps", "com.filecomparison.config"},
+    plugin = {
+        "pretty",
+        "json:target/cucumber-reports/cucumber.json",
+        "com.filecomparison.report.DetailedHTMLFormatter:target/cucumber-reports:dr-comparison-report"
+    },
+    monochrome = true
+)
+public class CucumberTestRunner {
+}
+
+
+
+
+
